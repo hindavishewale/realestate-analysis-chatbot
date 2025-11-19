@@ -1,5 +1,4 @@
-# Create a comprehensive README.md file
-echo "# Real Estate Analysis Chatbot
+# Real Estate Analysis Chatbot
 
 ## 🏠 Project Overview
 A full-stack web application that provides real estate analysis for different localities. Users can query area data and get text summaries, interactive charts, and detailed data tables.
