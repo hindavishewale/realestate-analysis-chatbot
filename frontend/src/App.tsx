@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Container, Row, Col, Form, Button, Card, Alert } from 'react-bootstrap';
+import { Container, Row, Col, Form, Button, Card, Alert, Badge } from 'react-bootstrap';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
@@ -25,6 +25,7 @@ interface AnalysisResponse {
     size: number;
   }>;
   area: string;
+  data_source?: string; // Add data source field
 }
 
 interface ComparisonResponse {
@@ -79,6 +80,86 @@ function App() {
     }
   };
 
+  const handleDownload = async (format: 'excel' | 'csv' = 'excel') => {
+    if (!query.trim()) {
+      setError('Please enter a query before downloading');
+      return;
+    }
+
+    try {
+      console.log(`📥 Downloading data as ${format} for query: ${query}`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/download/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: query,
+          format: format
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.statusText}`);
+      }
+
+      // Get the filename from content-disposition header or generate one
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = `real_estate_data.${format === 'excel' ? 'xlsx' : 'csv'}`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      console.log(`✅ Download successful: ${filename}`);
+      
+    } catch (err: any) {
+      console.error('Download error:', err);
+      setError(`Download failed: ${err.message}`);
+    }
+  };
+
+  const handleDownloadSample = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/download-sample/`);
+      
+      if (!response.ok) {
+        throw new Error('Sample download failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'real_estate_data_template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      console.log('✅ Sample template downloaded');
+      
+    } catch (err: any) {
+      console.error('Sample download error:', err);
+      setError(`Sample download failed: ${err.message}`);
+    }
+  };
+
   // Type guards
   const isAnalysisResponse = (response: ApiResponse): response is AnalysisResponse => {
     return 'summary' in response && 'chart_data' in response;
@@ -90,6 +171,25 @@ function App() {
 
   const isErrorResponse = (response: ApiResponse): response is { error: string } => {
     return 'error' in response;
+  };
+
+  // Data source badge component
+  const DataSourceBadge = ({ source }: { source?: string }) => {
+    if (!source) return null;
+    
+    const getVariant = () => {
+      switch (source) {
+        case 'Real Excel Data': return 'success';
+        case 'Sample Data': return 'warning';
+        default: return 'secondary';
+      }
+    };
+
+    return (
+      <Badge bg={getVariant()} className="ms-2">
+        📊 {source}
+      </Badge>
+    );
   };
 
   // Sample queries for quick testing
@@ -156,6 +256,39 @@ function App() {
                 >
                   {loading ? 'Analyzing...' : 'Analyze Real Estate Data'}
                 </Button>
+
+                {/* Download Options */}
+                <div className="mt-3">
+                  <h6>📥 Download Options:</h6>
+                  <div className="d-flex flex-wrap gap-2">
+                    <Button 
+                      variant="success" 
+                      onClick={() => handleDownload('excel')}
+                      disabled={loading}
+                      size="sm"
+                    >
+                      📊 Download Excel
+                    </Button>
+                    <Button 
+                      variant="outline-success" 
+                      onClick={() => handleDownload('csv')}
+                      disabled={loading}
+                      size="sm"
+                    >
+                      📄 Download CSV
+                    </Button>
+                    <Button 
+                      variant="outline-info" 
+                      onClick={handleDownloadSample}
+                      size="sm"
+                    >
+                      📋 Get Template
+                    </Button>
+                  </div>
+                  <small className="text-muted">
+                    Download current analysis data or get a sample template
+                  </small>
+                </div>
               </Form>
             </Card.Body>
           </Card>
@@ -177,7 +310,10 @@ function App() {
             <div className="mt-4">
               <Card className="mb-4">
                 <Card.Header className="bg-primary text-white">
-                  <h5>📊 Analysis for {response.area}</h5>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <h5 className="mb-0">📊 Analysis for {response.area}</h5>
+                    <DataSourceBadge source={response.data_source} />
+                  </div>
                 </Card.Header>
                 <Card.Body>
                   <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '16px' }}>
@@ -253,7 +389,10 @@ function App() {
               {/* Data Table */}
               <Card>
                 <Card.Header>
-                  <h6>📋 Detailed Data Table</h6>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <h6 className="mb-0">📋 Detailed Data Table</h6>
+                    <DataSourceBadge source={response.data_source} />
+                  </div>
                 </Card.Header>
                 <Card.Body>
                   <div className="table-responsive">
@@ -282,6 +421,29 @@ function App() {
                   </div>
                 </Card.Body>
               </Card>
+
+              {/* Export Section */}
+              <Card className="mt-3">
+                <Card.Body className="text-center">
+                  <h6>💾 Export Analysis</h6>
+                  <div className="d-flex justify-content-center gap-2">
+                    <Button 
+                      variant="success" 
+                      onClick={() => handleDownload('excel')}
+                      size="sm"
+                    >
+                      📊 Export to Excel
+                    </Button>
+                    <Button 
+                      variant="outline-success" 
+                      onClick={() => handleDownload('csv')}
+                      size="sm"
+                    >
+                      📄 Export to CSV
+                    </Button>
+                  </div>
+                </Card.Body>
+              </Card>
             </div>
           )}
 
@@ -299,7 +461,10 @@ function App() {
                 <Col md={6}>
                   <Card className="mb-4">
                     <Card.Header className="bg-primary text-white">
-                      <h5>📍 {response.area1.area}</h5>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h5 className="mb-0">📍 {response.area1.area}</h5>
+                        <DataSourceBadge source={response.area1.data_source} />
+                      </div>
                     </Card.Header>
                     <Card.Body>
                       <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px' }}>
@@ -351,7 +516,10 @@ function App() {
                 <Col md={6}>
                   <Card className="mb-4">
                     <Card.Header className="bg-warning text-dark">
-                      <h5>📍 {response.area2.area}</h5>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h5 className="mb-0">📍 {response.area2.area}</h5>
+                        <DataSourceBadge source={response.area2.data_source} />
+                      </div>
                     </Card.Header>
                     <Card.Body>
                       <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px' }}>
@@ -405,7 +573,10 @@ function App() {
                 <Col md={6}>
                   <Card>
                     <Card.Header>
-                      <h6>📋 {response.area1.area} Data</h6>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h6 className="mb-0">📋 {response.area1.area} Data</h6>
+                        <DataSourceBadge source={response.area1.data_source} />
+                      </div>
                     </Card.Header>
                     <Card.Body>
                       <div className="table-responsive">
@@ -436,7 +607,10 @@ function App() {
                 <Col md={6}>
                   <Card>
                     <Card.Header>
-                      <h6>📋 {response.area2.area} Data</h6>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <h6 className="mb-0">📋 {response.area2.area} Data</h6>
+                        <DataSourceBadge source={response.area2.data_source} />
+                      </div>
                     </Card.Header>
                     <Card.Body>
                       <div className="table-responsive">
@@ -465,6 +639,29 @@ function App() {
                   </Card>
                 </Col>
               </Row>
+
+              {/* Export Section */}
+              <Card className="mt-3">
+                <Card.Body className="text-center">
+                  <h6>💾 Export Comparison</h6>
+                  <div className="d-flex justify-content-center gap-2">
+                    <Button 
+                      variant="success" 
+                      onClick={() => handleDownload('excel')}
+                      size="sm"
+                    >
+                      📊 Export to Excel
+                    </Button>
+                    <Button 
+                      variant="outline-success" 
+                      onClick={() => handleDownload('csv')}
+                      size="sm"
+                    >
+                      📄 Export to CSV
+                    </Button>
+                  </div>
+                </Card.Body>
+              </Card>
             </div>
           )}
         </Col>

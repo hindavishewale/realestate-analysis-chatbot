@@ -1,7 +1,10 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from django.http import HttpResponse
 from .utils import RealEstateAnalyzer
 import re
+import pandas as pd
+from io import BytesIO
 
 # Create analyzer instance
 analyzer = RealEstateAnalyzer()
@@ -77,6 +80,134 @@ def analyze_query(request):
         import traceback
         print(f"❌ Traceback: {traceback.format_exc()}")
         return Response({'error': f'Internal server error: {str(e)}'}, status=500)
+
+@api_view(['POST'])
+def download_data(request):
+    """Download filtered data as Excel or CSV"""
+    try:
+        query = request.data.get('query', '').lower()
+        format_type = request.data.get('format', 'excel')  # excel or csv
+        
+        print(f"📥 Download request: {query} as {format_type}")
+        
+        if not query:
+            return Response({'error': 'Query cannot be empty'}, status=400)
+        
+        # Use the same analysis logic to get filtered data
+        if 'compare' in query:
+            # Handle comparison download
+            areas = extract_multiple_areas(query)
+            if len(areas) >= 2:
+                area1_data = analyzer.analyze_area(areas[0])
+                area2_data = analyzer.analyze_area(areas[1])
+                
+                if area1_data and area2_data:
+                    # Combine both areas' data
+                    combined_data = area1_data['table_data'] + area2_data['table_data']
+                    filename = f"comparison_{areas[0]}_vs_{areas[1]}"
+                else:
+                    return Response({'error': 'Could not get data for download'}, status=400)
+            else:
+                return Response({'error': 'Please specify two areas to compare'}, status=400)
+        else:
+            # Handle single area download
+            area = extract_single_area_from_query(query)
+            if area:
+                result = analyzer.analyze_area(area)
+                if result:
+                    combined_data = result['table_data']
+                    filename = f"analysis_{area}"
+                else:
+                    return Response({'error': f'No data found for {area}'}, status=404)
+            else:
+                return Response({'error': 'Please specify an area to analyze'}, status=400)
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(combined_data)
+        
+        # Create download file
+        if format_type == 'csv':
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="{filename}.csv"'
+            df.to_csv(response, index=False)
+        else:  # excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Real Estate Data', index=False)
+                # Auto-adjust column widths
+                worksheet = writer.sheets['Real Estate Data']
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = (max_length + 2)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+            
+            response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            response['Content-Disposition'] = f'attachment; filename="{filename}.xlsx"'
+        
+        print(f"✅ Download prepared: {len(combined_data)} records as {format_type}")
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error in download_data: {str(e)}")
+        return Response({'error': f'Download failed: {str(e)}'}, status=500)
+
+@api_view(['GET'])
+def download_sample_data(request):
+    """Download sample dataset template"""
+    try:
+        # Create sample data structure
+        sample_data = {
+            'year': [2020, 2021, 2022, 2023],
+            'area': ['Sample Area', 'Sample Area', 'Sample Area', 'Sample Area'],
+            'price': [500000, 550000, 600000, 650000],
+            'demand': [75, 80, 85, 82],
+            'size': [1000, 1100, 1200, 1250],
+            'description': ['Sample data for reference', 'Sample data for reference', 
+                          'Sample data for reference', 'Sample data for reference']
+        }
+        
+        df = pd.DataFrame(sample_data)
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Sample Data', index=False)
+            
+            # Add a guide sheet
+            guide_data = {
+                'Column Name': ['area', 'year', 'price', 'demand', 'size'],
+                'Description': [
+                    'Name of the locality/area',
+                    'Year of data (2020, 2021, etc.)',
+                    'Property price in INR',
+                    'Demand percentage (0-100)',
+                    'Property size in sqft'
+                ],
+                'Example': [
+                    'Wakad, Aundh, Akurdi',
+                    '2023',
+                    '650000',
+                    '82',
+                    '1250'
+                ]
+            }
+            guide_df = pd.DataFrame(guide_data)
+            guide_df.to_excel(writer, sheet_name='Data Guide', index=False)
+        
+        response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = 'attachment; filename="real_estate_data_template.xlsx"'
+        
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error in download_sample_data: {str(e)}")
+        return Response({'error': 'Sample download failed'}, status=500)
 
 def extract_single_area_from_query(query):
     """Extract area name from query for single analysis"""
