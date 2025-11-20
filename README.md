@@ -72,5 +72,5 @@ Frontend runs on: http://localhost:3001
 ✅ Comparison functionality  
 
 ## 👨‍💻 Developer
-Hinda Vishewale
+Hindavi shewale
 " > README.md
