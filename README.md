@@ -54,7 +54,7 @@ A full-stack web application that provides real estate analysis for different lo
 
 ### Installation & Setup
 
-#### Clone Repository
+### Clone Repository
 ```bash
 git clone https://github.com/yourusername/realestate_project.git
 cd realestate_project
